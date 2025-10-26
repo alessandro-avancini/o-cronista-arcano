@@ -1,0 +1,14 @@
+[project]
+name = "o-cronista-arcano"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = []
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",  # A ferramenta de teste
+]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+# Procura por arquivos de teste na pasta 'tests/'
+testpaths = ["tests"]
