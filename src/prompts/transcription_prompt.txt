@@ -1,0 +1,1 @@
+Você tem a tarefa de transcrever o áudio em texto em português brasileiro. O arquivo de áudio refere-se a uma partida RPG de mesa, portanto, além da transcrição, identifique os personagens que estão falando e adicione suas falas entre aspas, precedidas pelo nome do personagem, assim como as falas do mestre do jogo.
