@@ -3,7 +3,7 @@ import logging
 import json
 from google import genai
 from dotenv import load_dotenv
-from config import (
+from config.settings import (
     MODEL_NAME,
     MASTER_PROMPT
 )
