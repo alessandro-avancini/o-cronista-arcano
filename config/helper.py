@@ -2,11 +2,21 @@ from pathlib import Path
 
 # --- Directory Paths ---
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-DOWNLOADS_DIR = PROJECT_ROOT / "src" /"downloads"
+DOWNLOADS_DIR = PROJECT_ROOT / "downloads"
+AUDIO_DIR = DOWNLOADS_DIR / "audio"
 CHUNKS_ROOT_DIR = DOWNLOADS_DIR / "chunks"
 TRANSCRIPTS_ROOT_DIR = DOWNLOADS_DIR / "transcripts"
+JSON_ROOT_DIR = DOWNLOADS_DIR / "json"
 
 # --- Helper Functions ---
+
+def get_audio_dir() -> Path:
+    """
+    Retorna o caminho para a PASTA que contém o áudio.
+    Ex: .../downloads/audio/RPG Ninja S01E01.../"""
+    path = AUDIO_DIR
+    path.mkdir(parents=True, exist_ok=True) # Cria se não existir
+    return path
 
 def get_episode_chunks_dir(video_id: str) -> Path:
     """
@@ -33,6 +43,15 @@ def get_final_transcript_path(video_id: str) -> Path:
     """
     # Salva o .txt final dentro da pasta de transcrições do episódio
     return get_episode_transcripts_dir(video_id) / "full_transcript.txt"
+
+def get_knowledge_extraction_path(video_id: str) -> Path:
+    """
+    Retorna o caminho para o ARQUIVO .json final e combinado.
+    Ex: .../knowledge_extraction/RPG Ninja S01E01.../full_transcript.json
+    """
+    # Salva o .txt final dentro da pasta de transcrições do episódio
+    JSON_ROOT_DIR.mkdir(parents=True, exist_ok=True) # Cria se não existir
+    return JSON_ROOT_DIR / f"full_{video_id}.json"
 
 def setup_directories():
     """

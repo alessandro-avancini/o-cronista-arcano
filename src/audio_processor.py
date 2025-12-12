@@ -1,7 +1,10 @@
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pydub import AudioSegment
 import math
 from config.settings import DEFAULT_AUDIO_CHUNK_LENGTH_MS
+import config.helper as config
 
 def split_audio_into_chunks(audio_file_path: str,
                             output_dir: str,
@@ -18,7 +21,7 @@ def split_audio_into_chunks(audio_file_path: str,
         list[str]: List containing the file paths of the created chunks.
     """
     print(f"Starting audion splitting: {audio_file_path}")
-    os.makedirs(output_dir, exist_ok=True)
+    #os.makedirs(output_dir, exist_ok=True)
 
     try:
         audio = AudioSegment.from_file(audio_file_path)
@@ -51,8 +54,9 @@ def split_audio_into_chunks(audio_file_path: str,
 
 
 if __name__ == "__main__":
-    INPUT_AUDIO = "downloads/RPG Ninja S01E01 - O Pauzinho da Magia.mp3"
-    OUTPUT_FOLDER = "downloads/chunks/RPG Ninja S01E01 - O Pauzinho da Magia"
+    video_id = 'RPG Ensino Magico Ep. 02 - Os Pilares do Heroísmo'
+    INPUT_AUDIO = config.get_audio_dir() / f"{video_id}.mp3"
+    OUTPUT_FOLDER = config.get_episode_chunks_dir(video_id)
 
     if not os.path.exists(INPUT_AUDIO):
         print(f"Example entry file not found: {INPUT_AUDIO}")

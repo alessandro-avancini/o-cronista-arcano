@@ -1,10 +1,13 @@
-import yt_dlp
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import yt_dlp
 import logging
+import config.helper as config 
 
 logging.basicConfig(level=logging.INFO)
 
-def download_audio(video_url: str, output_dir: str = "downloads") -> str | None:
+def download_audio(video_url: str, output_dir: str = "downloads/audio") -> str | None:
     """
     Downloads the audio from a YouTube video and saves it as an MP3 file.
     Args:
@@ -30,7 +33,7 @@ def download_audio(video_url: str, output_dir: str = "downloads") -> str | None:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             logging.info("Downloading audio from YouTube video.")
             info_dict = ydl.extract_info(video_url, download=False)
-            title = info_dict.get('title', 'video')
+            title = info_dict.get('title', 'video')            
 
             base_filename = ydl.prepare_filename(info_dict)
             mp3_filename = f'{os.path.splitext(base_filename)[0]}.mp3'
@@ -57,8 +60,8 @@ def download_audio(video_url: str, output_dir: str = "downloads") -> str | None:
 
 if __name__ == "__main__":
     # Example usage
-    test_url = "https://www.youtube.com/watch?v=kJ2uKnjioeQ"
-    audio_file = download_audio(test_url)
+    test_url = "https://youtu.be/qdR4Hq-cj2U?si=Zl1AUxMuwCP3nkc7"
+    audio_file = download_audio(test_url, )
 
     if audio_file:
         logging.info(f"\n[SUCESS] Download finished.")

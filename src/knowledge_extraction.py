@@ -1,8 +1,11 @@
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 import json
 from google import genai
 from dotenv import load_dotenv
+import config.helper as config
 from config.settings import (
     MODEL_NAME,
     MASTER_PROMPT
@@ -87,8 +90,10 @@ def knowledge_extract(transcription_text: str, query_prompt: str) -> str | None:
         return None
 
 if __name__ == "__main__":
-    TRANSCRIPT_INPUT_FILE = "long_transcription.txt"
-    KNOWLEDGE_OUTPUT_FILE = "long_session_knowledge.json"
+    video_id = "RPG Ensino Magico Ep. 02 - Os Pilares do Heroísmo"
+    TRANSCRIPT_INPUT_FILE = config.get_final_transcript_path(video_id)
+    print(TRANSCRIPT_INPUT_FILE)
+    KNOWLEDGE_OUTPUT_FILE = config.get_knowledge_extraction_path(video_id)
 
     transcription_text = read_text_file(TRANSCRIPT_INPUT_FILE)
     master_prompt = read_text_file(MASTER_PROMPT)

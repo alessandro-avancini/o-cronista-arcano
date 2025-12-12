@@ -1,4 +1,6 @@
+import sys
 import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from google import genai
 import logging
 from dotenv import load_dotenv
@@ -30,7 +32,7 @@ def transcribe_audio_gemini(audio_file_path: pathlib.Path,
         logging.info("Transcribing audio file...")
         audio_file = client.files.upload(file=audio_file_path)
 
-        with open('prompts/transcription_prompt.txt', "r") as f:
+        with open('src/prompts/transcription_prompt.txt', "r") as f:
             prompt = f.read()
 
         response = client.models.generate_content(
@@ -112,6 +114,6 @@ def process_episode_transcription(video_id: str):
 if __name__ == "__main__":
     # Example usage
     config.setup_directories()
-    episode_id = "RPG Ninja S01E01 - O Pauzinho da Magia"
+    episode_id = "RPG Ensino Magico Ep. 02 - Os Pilares do Heroísmo"
     process_episode_transcription(episode_id)
 
