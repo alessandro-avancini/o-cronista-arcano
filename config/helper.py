@@ -7,6 +7,7 @@ AUDIO_DIR = DOWNLOADS_DIR / "audio"
 CHUNKS_ROOT_DIR = DOWNLOADS_DIR / "chunks"
 TRANSCRIPTS_ROOT_DIR = DOWNLOADS_DIR / "transcripts"
 JSON_ROOT_DIR = DOWNLOADS_DIR / "json"
+VECTOR_DB_DIR = DOWNLOADS_DIR / "vectordb"
 
 # --- Helper Functions ---
 
@@ -52,6 +53,14 @@ def get_knowledge_extraction_path(video_id: str) -> Path:
     # Salva o .txt final dentro da pasta de transcrições do episódio
     JSON_ROOT_DIR.mkdir(parents=True, exist_ok=True) # Cria se não existir
     return JSON_ROOT_DIR / f"full_{video_id}.json"
+
+def get_vector_db_dir() -> Path:
+    """
+    Retorna o caminho para o diretório do banco vetorial ChromaDB.
+    Ex: .../downloads/vectordb/
+    """
+    VECTOR_DB_DIR.mkdir(parents=True, exist_ok=True)
+    return VECTOR_DB_DIR
 
 def setup_directories():
     """
