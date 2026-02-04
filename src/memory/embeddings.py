@@ -22,10 +22,11 @@ from config.settings import EMBEDDING_MODEL
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Detecta automaticamente o dispositivo (GPU se disponível)
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-logger.info(f"🖥️ Dispositivo de embeddings: {DEVICE.upper()}" + 
-            (f" ({torch.cuda.get_device_name(0)})" if DEVICE == "cuda" else ""))
+# Força CPU para embeddings (deixa GPU livre para Ollama)
+# Descomente a linha abaixo para usar GPU nos embeddings (pode causar OOM com LLMs grandes)
+# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cpu"  # Recomendado quando usar Ollama na GPU
+logger.info(f"🖥️ Dispositivo de embeddings: {DEVICE.upper()}")
 
 # Cache global do modelo para evitar recarregamentos
 _model_cache: Optional[SentenceTransformer] = None
