@@ -10,14 +10,9 @@ import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-# Adiciona path do projeto
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
+from config.settings import SEARCH_DEFAULT_TOP_K, SEARCH_PREVIEW_MAX_CHARS
 from src.memory.vector_store import query_collection, get_collection_info
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -32,52 +27,52 @@ class SearchResult:
     relevance_score: float  # 1 - distance (quanto maior, mais relevante)
 
 
+def _results_to_search_results(results: Dict[str, Any]) -> List[SearchResult]:
+    """Converte resultado bruto do ChromaDB em lista de SearchResult."""
+    if not results["documents"][0]:
+        return []
+    search_results = []
+    for doc, meta, dist in zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0],
+    ):
+        search_results.append(
+            SearchResult(
+                content=doc,
+                video_id=meta.get("video_id", "unknown"),
+                source_file=meta.get("source_file", "unknown"),
+                chunk_index=meta.get("chunk_index", -1),
+                distance=dist,
+                relevance_score=max(0, 1 - dist),
+            )
+        )
+    return search_results
+
+
 def semantic_search(
     query: str,
-    top_k: int = 5
+    top_k: int = SEARCH_DEFAULT_TOP_K,
+    where: Optional[Dict[str, Any]] = None,
 ) -> List[SearchResult]:
     """
     Realiza busca semântica no banco vetorial.
-    
+
     Args:
         query: Pergunta ou texto para buscar
         top_k: Número de resultados a retornar
-        
+        where: Filtro opcional de metadados (ex.: {"video_id": "..."})
+
     Returns:
         Lista de SearchResult ordenados por relevância
     """
     if not query.strip():
         logger.warning("Query vazia")
         return []
-    
-    logger.info(f"Buscando: '{query}'")
-    
-    # Realiza a query no ChromaDB
-    results = query_collection(query, n_results=top_k)
-    
-    if not results['documents'][0]:
-        logger.info("Nenhum resultado encontrado")
-        return []
-    
-    # Converte para SearchResult
-    search_results = []
-    
-    documents = results['documents'][0]
-    metadatas = results['metadatas'][0]
-    distances = results['distances'][0]
-    
-    for doc, meta, dist in zip(documents, metadatas, distances):
-        result = SearchResult(
-            content=doc,
-            video_id=meta.get('video_id', 'unknown'),
-            source_file=meta.get('source_file', 'unknown'),
-            chunk_index=meta.get('chunk_index', -1),
-            distance=dist,
-            relevance_score=max(0, 1 - dist)  # Normaliza para 0-1
-        )
-        search_results.append(result)
-    
-    logger.info(f"Encontrados {len(search_results)} resultados")
+    logger.info("Buscando: '%s'", query)
+    results = query_collection(query, n_results=top_k, where=where)
+    search_results = _results_to_search_results(results)
+    logger.info("Encontrados %d resultados", len(search_results))
     return search_results
 
 
@@ -107,7 +102,10 @@ def format_results(results: List[SearchResult], show_metadata: bool = True) -> s
             output.append(f"    📹 Vídeo: {result.video_id}")
             output.append(f"    📄 Chunk: #{result.chunk_index}")
         
-        output.append(f"\n    \"{result.content[:500]}{'...' if len(result.content) > 500 else ''}\"")
+        preview_len = SEARCH_PREVIEW_MAX_CHARS
+        output.append(
+            f"\n    \"{result.content[:preview_len]}{'...' if len(result.content) > preview_len else ''}\""
+        )
         output.append(f"\n{'-' * 60}\n")
     
     return "\n".join(output)
@@ -137,7 +135,7 @@ def interactive_search():
             if not query:
                 continue
             
-            results = semantic_search(query, top_k=5)
+            results = semantic_search(query, top_k=SEARCH_DEFAULT_TOP_K)
             formatted = format_results(results)
             print(formatted)
             
@@ -151,30 +149,26 @@ def interactive_search():
 def search_by_video(
     query: str,
     video_id: str,
-    top_k: int = 5
+    top_k: int = 5,
 ) -> List[SearchResult]:
     """
     Busca semântica filtrada por vídeo específico.
-    
+
     Args:
         query: Pergunta ou texto para buscar
         video_id: ID do vídeo para filtrar
         top_k: Número de resultados
-        
+
     Returns:
         Lista de SearchResult do vídeo especificado
     """
-    # Por enquanto, faz busca normal e filtra
-    # Futuramente pode usar where clause do ChromaDB
-    all_results = semantic_search(query, top_k=top_k * 3)
-    
-    filtered = [r for r in all_results if r.video_id == video_id]
-    return filtered[:top_k]
+    return semantic_search(query, top_k=top_k, where={"video_id": video_id})
 
 
 if __name__ == "__main__":
     import argparse
-    
+
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
         description="Busca semântica nas transcrições do Cronista Arcano"
     )
@@ -187,8 +181,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "-n", "--num-results",
         type=int,
-        default=5,
-        help="Número de resultados (padrão: 5)"
+        default=SEARCH_DEFAULT_TOP_K,
+        help=f"Número de resultados (padrão: {SEARCH_DEFAULT_TOP_K})",
     )
     parser.add_argument(
         "-v", "--video",

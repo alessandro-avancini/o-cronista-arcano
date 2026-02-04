@@ -1,18 +1,21 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from google import genai
 import logging
-from dotenv import load_dotenv
-import config.helper as config
+import os
 import pathlib
 
+from dotenv import load_dotenv
+from google import genai
+
+import config.helper as config
+from config.settings import MODEL_NAME, TRANSCRIPT_CHUNK_SUFFIX
+
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def transcribe_audio_gemini(audio_file_path: pathlib.Path,
-                            model = 'gemini-2.5-flash') -> str:
+def transcribe_audio_gemini(
+    audio_file_path: pathlib.Path,
+    model: str = MODEL_NAME,
+) -> str:
     """
     Transcribes an audio file using Google Gemini's model.
 
@@ -29,38 +32,36 @@ def transcribe_audio_gemini(audio_file_path: pathlib.Path,
 
     try:
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        logging.info("Transcribing audio file...")
+        logger.info("Transcribing audio file...")
         audio_file = client.files.upload(file=audio_file_path)
 
-        with open('src/prompts/transcription_prompt.txt', "r") as f:
-            prompt = f.read()
+        prompt_path = config.get_transcription_prompt_path()
+        prompt = prompt_path.read_text(encoding="utf-8")
 
         response = client.models.generate_content(
             model=model,
             contents=[prompt, audio_file]
         )
         if response.text:
-            logging.info(f"Transcription completed successfully")
+            logger.info("Transcription completed successfully")
             return response.text
-        else:
-            logging.error("Transcription did not contain any text. Check the audio file and try again.")
-            return ""
-
-    except Exception as e:
-        logging.error(f"An error occurred during transcription: {e}")
+        logger.error("Transcription did not contain any text. Check the audio file and try again.")
         return ""
 
-def process_episode_transcription(video_id: str):
+    except Exception as e:
+        logger.error("An error occurred during transcription: %s", e)
+        return ""
+
+def process_episode_transcription(video_id: str) -> pathlib.Path | None:
     """
     Processes the transcription of an episode audio file and saves the result.
 
     Args:
-        audio_file_path (str): The path to the audio file to be transcribed.
-        output_file_path (str): The path where the transcription will be saved.
-        model (str): The Gemini model to use for transcription.
+        video_id: Identifier of the episode (used for paths).
+
+    Returns:
+        Path to the final transcript file, or None on failure.
     """
-
-
     chunks_dir = config.get_episode_chunks_dir(video_id)
     transcripts_dir = config.get_episode_transcripts_dir(video_id)
     final_transcript_path = config.get_final_transcript_path(video_id)
@@ -68,20 +69,20 @@ def process_episode_transcription(video_id: str):
     chunk_files = sorted(chunks_dir.glob("*.mp3"))
 
     if not chunk_files:
-        logging.error(f"No audio chunks found in directory: {chunks_dir}")
-        return
+        logger.error("No audio chunks found in directory: %s", chunks_dir)
+        return None
 
-    logging.info(f"Processing {len(chunk_files)} audio chunks for transcription...")
+    logger.info("Processing %d audio chunks for transcription...", len(chunk_files))
 
     individual_transcripts = []
     for chunk_file in chunk_files:
 
-        transcript_filename = f"{chunk_file.stem}_transcript.txt"
+        transcript_filename = f"{chunk_file.stem}{TRANSCRIPT_CHUNK_SUFFIX}"
         transcript_path = transcripts_dir / transcript_filename
         individual_transcripts.append(transcript_path)
 
         if transcript_path.exists():
-            logging.info(f"Transcript already exists for chunk: {chunk_file.name}, skipping transcription.")
+            logger.info("Transcript already exists for chunk: %s, skipping transcription.", chunk_file.name)
             continue
         transcript_text = transcribe_audio_gemini(chunk_file)
 
@@ -89,9 +90,9 @@ def process_episode_transcription(video_id: str):
             try:
                 transcript_path.write_text(transcript_text, encoding='utf-8')
             except Exception as e:
-                logging.error(f"Error saving transcript for chunk {chunk_file.name}: {e}")
+                logger.error("Error saving transcript for chunk %s: %s", chunk_file.name, e)
 
-    logging.info("Combining individual transcripts into final transcript...")
+    logger.info("Combining individual transcripts into final transcript...")
     full_text = ""
 
     for transcript_path in individual_transcripts:
@@ -100,19 +101,21 @@ def process_episode_transcription(video_id: str):
                 chunk_text = transcript_path.read_text(encoding='utf-8')
                 full_text += chunk_text + "\n\n"
             except Exception as e:
-                logging.error(f"Error reading transcript file {transcript_path.name}: {e}")
+                logger.error("Error reading transcript file %s: %s", transcript_path.name, e)
         else:
-            logging.warning(f"Transcript file not found: {transcript_path.name}")
+            logger.warning("Transcript file not found: %s", transcript_path.name)
 
     try:
-        final_transcript_path.write_text(full_text, encoding='utf-8')
-        print(f"Final transcription saved at: {final_transcript_path}")
+        final_transcript_path.write_text(full_text, encoding="utf-8")
+        logger.info("Final transcription saved at: %s", final_transcript_path)
+        return final_transcript_path
     except Exception as e:
-        print(f"Error when saving full transcription: {e}")
+        logger.error("Error when saving full transcription: %s", e)
+        return None
 
 
 if __name__ == "__main__":
-    # Example usage
+    logging.basicConfig(level=logging.INFO)
     config.setup_directories()
     episode_id = "RPG Ensino Magico Ep. 02 - Os Pilares do Heroísmo"
     process_episode_transcription(episode_id)

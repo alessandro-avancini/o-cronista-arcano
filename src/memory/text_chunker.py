@@ -9,14 +9,7 @@ do LangChain, que respeita limites naturais de parágrafos e frases.
 from dataclasses import dataclass
 from typing import List
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-# Adiciona path do projeto
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
-
 
 @dataclass
 class TextChunk:

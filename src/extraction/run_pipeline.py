@@ -15,42 +15,41 @@ Exemplo:
     python src/main.py "https://www.youtube.com/watch?v=qdR4Hq-cj2U"
 """
 
-import sys
-import os
 import argparse
 import logging
+import os
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Optional
-
-# Adiciona o diretório raiz ao path para imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from typing import List, Optional
 
 from dotenv import load_dotenv
 
 # Imports dos módulos do projeto
 import config.helper as config
-from config.settings import MASTER_PROMPT
-from src.ingestion import download_audio
-from src.audio_processor import split_audio_into_chunks
-from src.transcription import process_episode_transcription
-from src.knowledge_extraction import (
-    read_text_file,
-    save_text_to_file,
+from src.extraction.ingestion import download_audio
+from src.extraction.audio_processor import split_audio_into_chunks
+from src.extraction.transcription import process_episode_transcription
+from src.extraction.io_utils import read_text_file, save_text_to_file
+from src.extraction.knowledge_extraction import (
+    clean_and_validate_json,
     knowledge_extract,
-    clean_and_validate_json
 )
 
-# Carrega variáveis de ambiente
 load_dotenv()
 
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PipelineContext:
+    """Estado acumulado entre as etapas do pipeline."""
+
+    video_id: str = ""
+    audio_path: Optional[Path] = None
+    chunk_paths: List[str] = field(default_factory=list)
+    transcript_path: Optional[Path] = None
+    json_path: Optional[Path] = None
 
 
 @dataclass
@@ -63,6 +62,19 @@ class ProcessingResult:
     transcript_path: Optional[Path] = None
     json_path: Optional[Path] = None
     error_message: Optional[str] = None
+
+
+def _failure_result(ctx: PipelineContext, error_message: str) -> ProcessingResult:
+    """Monta um ProcessingResult de falha a partir do contexto atual."""
+    return ProcessingResult(
+        success=False,
+        video_id=ctx.video_id,
+        audio_path=ctx.audio_path,
+        chunks_count=len(ctx.chunk_paths),
+        transcript_path=ctx.transcript_path,
+        json_path=ctx.json_path,
+        error_message=error_message,
+    )
 
 
 def validate_environment() -> bool:
@@ -121,8 +133,6 @@ def step_2_split_audio(audio_path: str, video_id: str) -> list[str]:
     logger.info("=" * 60)
     
     chunks_dir = config.get_episode_chunks_dir(video_id)
-    chunks_dir.mkdir(parents=True, exist_ok=True)
-    
     chunk_paths = split_audio_into_chunks(audio_path, str(chunks_dir))
     
     if chunk_paths:
@@ -145,19 +155,16 @@ def step_3_transcribe(video_id: str) -> Optional[Path]:
     logger.info("=" * 60)
     
     try:
-        process_episode_transcription(video_id)
-        transcript_path = config.get_final_transcript_path(video_id)
-        
-        if transcript_path.exists():
-            file_size_kb = transcript_path.stat().st_size / 1024
-            logger.info(f"✅ Transcrição concluída: {transcript_path}")
-            logger.info(f"   Tamanho: {file_size_kb:.2f} KB")
-            return transcript_path
-        else:
+        transcript_path = process_episode_transcription(video_id)
+        if transcript_path is None:
             logger.error("❌ Arquivo de transcrição não foi criado")
             return None
+        file_size_kb = transcript_path.stat().st_size / 1024
+        logger.info("✅ Transcrição concluída: %s", transcript_path)
+        logger.info("   Tamanho: %.2f KB", file_size_kb)
+        return transcript_path
     except Exception as e:
-        logger.error(f"❌ Erro durante a transcrição: {e}")
+        logger.error("❌ Erro durante a transcrição: %s", e)
         return None
 
 
@@ -181,10 +188,9 @@ def step_4_extract_knowledge(video_id: str) -> Optional[Path]:
         logger.error("❌ Não foi possível ler o arquivo de transcrição")
         return None
     
-    # Lê o prompt mestre
-    master_prompt = read_text_file(MASTER_PROMPT)
+    master_prompt = config.read_master_prompt()
     if not master_prompt:
-        logger.error(f"❌ Não foi possível ler o prompt mestre: {MASTER_PROMPT}")
+        logger.error("❌ Não foi possível ler o prompt mestre")
         return None
     
     # Realiza a extração de conhecimento
@@ -196,9 +202,10 @@ def step_4_extract_knowledge(video_id: str) -> Optional[Path]:
         return None
     
     # Limpa e valida o JSON
-    clean_json = clean_and_validate_json(json_response)
-    
-    # Salva o resultado
+    clean_json, is_valid = clean_and_validate_json(json_response)
+    if not is_valid:
+        logger.warning("JSON retornado pelo modelo é inválido; salvando texto bruto.")
+
     success = save_text_to_file(clean_json, str(json_output_path))
     
     if success:
@@ -214,78 +221,52 @@ def step_4_extract_knowledge(video_id: str) -> Optional[Path]:
 def run_pipeline(video_url: str) -> ProcessingResult:
     """
     Executa o pipeline completo de processamento.
-    
+
     Args:
         video_url: URL do vídeo do YouTube
-        
+
     Returns:
         ProcessingResult: Resultado do processamento
     """
-    logger.info("🚀 Iniciando O Cronista Arcano - Pipeline de Processamento")
-    logger.info(f"   URL: {video_url}")
+    logger.info("Iniciando O Cronista Arcano - Pipeline de Processamento")
+    logger.info("   URL: %s", video_url)
     logger.info("")
-    
-    # Validação inicial
+
+    ctx = PipelineContext()
+
     if not validate_environment():
-        return ProcessingResult(
-            success=False,
-            video_id="",
-            error_message="Variáveis de ambiente não configuradas"
-        )
-    
-    # Configuração de diretórios
+        return _failure_result(ctx, "Variáveis de ambiente não configuradas")
+
     config.setup_directories()
-    
-    # Etapa 1: Download
+
     audio_path, video_id = step_1_download_audio(video_url)
     if not audio_path or not video_id:
-        return ProcessingResult(
-            success=False,
-            video_id="",
-            error_message="Falha no download do áudio"
-        )
-    
-    # Etapa 2: Divisão em chunks
+        return _failure_result(ctx, "Falha no download do áudio")
+    ctx.video_id = video_id
+    ctx.audio_path = Path(audio_path)
+
     chunk_paths = step_2_split_audio(audio_path, video_id)
     if not chunk_paths:
-        return ProcessingResult(
-            success=False,
-            video_id=video_id,
-            audio_path=Path(audio_path),
-            error_message="Falha na divisão do áudio em chunks"
-        )
-    
-    # Etapa 3: Transcrição
+        return _failure_result(ctx, "Falha na divisão do áudio em chunks")
+    ctx.chunk_paths = chunk_paths
+
     transcript_path = step_3_transcribe(video_id)
     if not transcript_path:
-        return ProcessingResult(
-            success=False,
-            video_id=video_id,
-            audio_path=Path(audio_path),
-            chunks_count=len(chunk_paths),
-            error_message="Falha na transcrição"
-        )
-    
-    # Etapa 4: Extração de conhecimento
+        return _failure_result(ctx, "Falha na transcrição")
+    ctx.transcript_path = transcript_path
+
     json_path = step_4_extract_knowledge(video_id)
     if not json_path:
-        return ProcessingResult(
-            success=False,
-            video_id=video_id,
-            audio_path=Path(audio_path),
-            chunks_count=len(chunk_paths),
-            transcript_path=transcript_path,
-            error_message="Falha na extração de conhecimento"
-        )
-    
-    # Sucesso completo!
+        return _failure_result(ctx, "Falha na extração de conhecimento")
+    ctx.json_path = json_path
+
     return ProcessingResult(
         success=True,
-        video_id=video_id,
-        audio_path=Path(audio_path),
-        chunks_count=len(chunk_paths),
-        transcript_path=transcript_path,
-        json_path=json_path
+        video_id=ctx.video_id,
+        audio_path=ctx.audio_path,
+        chunks_count=len(ctx.chunk_paths),
+        transcript_path=ctx.transcript_path,
+        json_path=ctx.json_path,
     )
 
 
@@ -324,6 +305,11 @@ def print_summary(result: ProcessingResult) -> None:
 
 def main():
     """Função principal - ponto de entrada do script."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     parser = argparse.ArgumentParser(
         description="O Cronista Arcano - Processa vídeos do YouTube e gera JSON com informações extraídas",
         formatter_class=argparse.RawDescriptionHelpFormatter,

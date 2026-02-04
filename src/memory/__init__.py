@@ -5,7 +5,7 @@ Memory Module - Sistema de Memória Vetorial
 Expõe as principais funcionalidades do módulo de memória vetorial.
 """
 
-from src.memory.text_chunker import split_text, TextChunk, RecursiveCharacterTextSplitter
+from src.memory.text_chunker import split_text, TextChunk
 from src.memory.embeddings import generate_embeddings, get_embedding_model
 from src.memory.vector_store import (
     get_chroma_client,
@@ -19,8 +19,7 @@ from src.memory.vector_store import (
 __all__ = [
     # Text Chunker
     "split_text",
-    "TextChunk", 
-    "RecursiveCharacterTextSplitter",
+    "TextChunk",
     # Embeddings
     "generate_embeddings",
     "get_embedding_model",

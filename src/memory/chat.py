@@ -11,17 +11,12 @@ Uso:
 """
 
 import logging
-from typing import List, Optional
+from typing import List
 import ollama
 
-# Adiciona path do projeto
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
+from config.settings import RAG_TOP_K_DEFAULT
 from src.memory.search import semantic_search, SearchResult
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Modelo padrão do Ollama
@@ -37,9 +32,6 @@ CONTEXTO DAS TRANSCRIÇÕES:
 PERGUNTA: {question}
 
 RESPOSTA:"""
-
-# Se a informação não estiver no contexto, 
-# diga que não encontrou essa informação nas transcrições.
 
 
 def format_context(results: List[SearchResult]) -> str:
@@ -59,7 +51,7 @@ def format_context(results: List[SearchResult]) -> str:
 def chat_with_context(
     question: str,
     model: str = DEFAULT_MODEL,
-    top_k: int = 3
+    top_k: int = RAG_TOP_K_DEFAULT,
 ) -> str:
     """
     Responde uma pergunta usando RAG (Retrieval-Augmented Generation).
@@ -131,7 +123,8 @@ def interactive_chat(model: str = DEFAULT_MODEL):
 
 if __name__ == "__main__":
     import argparse
-    
+
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
         description="Chat RAG com Ollama e busca vetorial"
     )

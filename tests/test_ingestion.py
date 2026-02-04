@@ -1,6 +1,6 @@
 import pytest
 import os
-from src.ingestion import download_audio
+from src.extraction.ingestion import download_audio
 
 
 @pytest.fixture

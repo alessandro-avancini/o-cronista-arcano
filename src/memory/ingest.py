@@ -12,13 +12,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-# Adiciona path do projeto
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 import config.helper as config
-from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
+from config.settings import CHUNK_SIZE, CHUNK_OVERLAP, FULL_TRANSCRIPT_FILENAME
 from src.memory.text_chunker import split_text, TextChunk
 from src.memory.vector_store import (
     add_documents,
@@ -26,7 +21,6 @@ from src.memory.vector_store import (
     get_or_create_collection
 )
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -70,7 +64,7 @@ def find_transcripts() -> List[Path]:
         logger.warning(f"Diretório de transcrições não encontrado: {transcripts_dir}")
         return []
     
-    transcripts = list(transcripts_dir.glob("*/full_transcript.txt"))
+    transcripts = list(transcripts_dir.glob(f"*/{FULL_TRANSCRIPT_FILENAME}"))
     logger.info(f"Encontrados {len(transcripts)} arquivos de transcrição")
     
     return transcripts
@@ -171,25 +165,32 @@ def ingest_transcript(transcript_path: Path) -> IngestResult:
         )
 
 
-def ingest_all_transcripts() -> List[IngestResult]:
+def ingest_all_transcripts(force: bool = False) -> List[IngestResult]:
     """
     Ingere todas as transcrições encontradas.
-    
+
+    Args:
+        force: Se True, reingere mesmo quando o vídeo já estiver no banco.
+
     Returns:
         Lista de IngestResult para cada transcrição processada
     """
     logger.info("=" * 60)
-    logger.info("🔄 Iniciando ingestão de transcrições")
+    logger.info("Iniciando ingestão de transcrições")
     logger.info("=" * 60)
-    
+
     transcripts = find_transcripts()
-    
+
     if not transcripts:
         logger.warning("Nenhuma transcrição encontrada para ingerir")
         return []
-    
+
     results = []
     for transcript_path in transcripts:
+        video_id = extract_video_id_from_path(transcript_path)
+        if not force and check_if_already_ingested(video_id):
+            logger.info("Pulando %s (já ingerido; use --force para reingerir)", video_id)
+            continue
         result = ingest_transcript(transcript_path)
         results.append(result)
     
@@ -236,7 +237,9 @@ def check_if_already_ingested(video_id: str) -> bool:
 
 if __name__ == "__main__":
     import argparse
-    
+    import sys
+
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
         description="Ingere transcrições no banco vetorial ChromaDB"
     )
@@ -245,13 +248,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Força reingestão mesmo se já existir"
     )
-    
+
     args = parser.parse_args()
-    
-    # Executa ingestão
-    results = ingest_all_transcripts()
-    
-    # Exit code baseado no resultado
+
+    results = ingest_all_transcripts(force=args.force)
+
     if any(not r.success for r in results):
         sys.exit(1)
     sys.exit(0)

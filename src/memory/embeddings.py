@@ -11,22 +11,14 @@ from typing import List, Optional
 from sentence_transformers import SentenceTransformer
 import chromadb
 import torch
-
-# Adiciona path do projeto
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 from config.settings import EMBEDDING_MODEL
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Força CPU para embeddings (deixa GPU livre para Ollama)
 # Descomente a linha abaixo para usar GPU nos embeddings (pode causar OOM com LLMs grandes)
 # DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DEVICE = "cpu"  # Recomendado quando usar Ollama na GPU
-logger.info(f"🖥️ Dispositivo de embeddings: {DEVICE.upper()}")
 
 # Cache global do modelo para evitar recarregamentos
 _model_cache: Optional[SentenceTransformer] = None
@@ -43,9 +35,13 @@ def get_embedding_model() -> SentenceTransformer:
     global _model_cache
     
     if _model_cache is None:
-        logger.info(f"Carregando modelo de embeddings: {EMBEDDING_MODEL} no {DEVICE.upper()}")
+        logger.info(
+            "Carregando modelo de embeddings: %s no %s",
+            EMBEDDING_MODEL,
+            DEVICE.upper(),
+        )
         _model_cache = SentenceTransformer(EMBEDDING_MODEL, device=DEVICE)
-        logger.info("Modelo carregado com sucesso!")
+        logger.info("Modelo carregado com sucesso.")
     
     return _model_cache
 
@@ -72,6 +68,20 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
     return embeddings.tolist()
 
 
+def embed_for_query(texts: List[str]) -> List[List[float]]:
+    """
+    Gera embeddings para textos de consulta (prefixo "query: " em modelos E5).
+    Usa o modelo em cache. Use em query_collection em vez de instanciar outra
+    embedding function.
+    """
+    if not texts:
+        return []
+    model = get_embedding_model()
+    if "e5" in EMBEDDING_MODEL.lower():
+        texts = ["query: " + t for t in texts]
+    return model.encode(texts).tolist()
+
+
 class SentenceTransformerEmbeddingFunction(chromadb.EmbeddingFunction):
     """
     Função de embedding compatível com ChromaDB.
@@ -91,15 +101,11 @@ class SentenceTransformerEmbeddingFunction(chromadb.EmbeddingFunction):
         """
         self.model_name = model_name
         self.is_query = is_query
-        self._model: Optional[SentenceTransformer] = None
-        # Detecta se é modelo E5 para aplicar prefixos
         self._is_e5_model = "e5" in model_name.lower()
-    
+
     @property
     def model(self) -> SentenceTransformer:
-        if self._model is None:
-            self._model = SentenceTransformer(self.model_name, device=DEVICE)
-        return self._model
+        return get_embedding_model()
     
     def _add_prefix(self, texts: List[str]) -> List[str]:
         """Adiciona prefixo apropriado para modelos E5."""
@@ -125,7 +131,7 @@ class SentenceTransformerEmbeddingFunction(chromadb.EmbeddingFunction):
 
 
 if __name__ == "__main__":
-    # Teste simples
+    logging.basicConfig(level=logging.INFO)
     test_texts = [
         "O mago lançou uma bola de fogo contra o dragão.",
         "Os aventureiros entraram na masmorra escura.",

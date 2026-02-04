@@ -1,69 +1,90 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pydub import AudioSegment
+import logging
 import math
-from config.settings import DEFAULT_AUDIO_CHUNK_LENGTH_MS
-import config.helper as config
+import os
+from pathlib import Path
 
-def split_audio_into_chunks(audio_file_path: str,
-                            output_dir: str,
-                            chunk_length_ms: int = DEFAULT_AUDIO_CHUNK_LENGTH_MS) -> list[str]:
+from pydub import AudioSegment
+
+import config.helper as config
+from config.settings import (
+    AUDIO_CHUNK_EXTENSION,
+    AUDIO_CHUNK_PREFIX,
+    DEFAULT_AUDIO_CHUNK_LENGTH_MS,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def split_audio_into_chunks(
+    audio_file_path: str,
+    output_dir: str,
+    chunk_length_ms: int = DEFAULT_AUDIO_CHUNK_LENGTH_MS,
+) -> list[str]:
     """
     Divides an audio file into smaller chunks of fixed size.
 
     Arguments:
-        audio_file_path (str): File path to the input audio file.
-        output_dir (str): Directory where the chunks will be saved.
-        chunk_length_ms (int): Duration of each chunk in milliseconds.
+        audio_file_path: File path to the input audio file.
+        output_dir: Directory where the chunks will be saved.
+        chunk_length_ms: Duration of each chunk in milliseconds.
 
-    Retorn:
-        list[str]: List containing the file paths of the created chunks.
+    Returns:
+        List of file paths of the created chunks.
     """
-    print(f"Starting audion splitting: {audio_file_path}")
-    #os.makedirs(output_dir, exist_ok=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
+    logger.info("Starting audio splitting: %s", audio_file_path)
     try:
         audio = AudioSegment.from_file(audio_file_path)
-        print(f"Audio loaded successfully. Total duration: {len(audio) / 1000:.2f} seconds.")
+        logger.info(
+            "Audio loaded successfully. Total duration: %.2f seconds.",
+            len(audio) / 1000,
+        )
     except Exception as e:
-        print(f"Error loading audio file {audio_file_path}: {e}")
+        logger.error("Error loading audio file %s: %s", audio_file_path, e)
         return []
 
     total_length_ms = len(audio)
     total_chunks = math.ceil(total_length_ms / chunk_length_ms)
-    print(f"Dividing into {total_chunks} chunks of ~{chunk_length_ms / 1000 / 60:.0f} minutes...")
+    logger.info(
+        "Dividing into %d chunks of ~%.0f minutes...",
+        total_chunks,
+        chunk_length_ms / 1000 / 60,
+    )
 
     chunk_paths = []
-
     for i in range(total_chunks):
         start_ms = i * chunk_length_ms
         end_ms = min((i + 1) * chunk_length_ms, total_length_ms)
         chunk = audio[start_ms:end_ms]
-        chunk_filename = f"chunk_{i:04d}.mp3"
+        chunk_filename = f"{AUDIO_CHUNK_PREFIX}{i:04d}{AUDIO_CHUNK_EXTENSION}"
         chunk_path = os.path.join(output_dir, chunk_filename)
         try:
-            chunk.export(chunk_path, format="wav")
+            chunk.export(chunk_path, format="mp3")
             chunk_paths.append(chunk_path)
-            print(f"  -> Exported: {chunk_path}")
+            logger.info("Exported: %s", chunk_path)
         except Exception as e:
-            print(f"Error exporting chunk {chunk_path}: {e}")
+            logger.error("Error exporting chunk %s: %s", chunk_path, e)
 
-    print(f"Splitting concluded sucessfully! {len(chunk_paths)} chunks saved at {output_dir}")
+    logger.info(
+        "Splitting concluded successfully. %d chunks saved at %s",
+        len(chunk_paths),
+        output_dir,
+    )
     return chunk_paths
 
 
 if __name__ == "__main__":
-    video_id = 'RPG Ensino Magico Ep. 02 - Os Pilares do Heroísmo'
+    logging.basicConfig(level=logging.INFO)
+    video_id = "RPG Ensino Magico Ep. 02 - Os Pilares do Heroísmo"
     INPUT_AUDIO = config.get_audio_dir() / f"{video_id}.mp3"
     OUTPUT_FOLDER = config.get_episode_chunks_dir(video_id)
 
     if not os.path.exists(INPUT_AUDIO):
-        print(f"Example entry file not found: {INPUT_AUDIO}")
-        print("Please, download an audio from YouTube and place it in the 'downloads' folder.")
+        logger.error("Example entry file not found: %s", INPUT_AUDIO)
+        logger.info("Please download an audio from YouTube and place it in the downloads folder.")
     else:
-        created_chunks = split_audio_into_chunks(INPUT_AUDIO, OUTPUT_FOLDER)
-
+        created_chunks = split_audio_into_chunks(str(INPUT_AUDIO), str(OUTPUT_FOLDER))
         if created_chunks:
-            print("\nNext step: Send these files to transcription!")
-            print(created_chunks)
+            logger.info("Next step: Send these files to transcription!")
+            logger.info("%s", created_chunks)

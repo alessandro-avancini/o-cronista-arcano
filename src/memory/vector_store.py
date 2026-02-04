@@ -11,16 +11,13 @@ from typing import List, Dict, Any, Optional
 import chromadb
 from chromadb.config import Settings
 
-# Adiciona path do projeto
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 import config.helper as config
-from config.settings import CHROMA_COLLECTION_NAME
-from src.memory.embeddings import SentenceTransformerEmbeddingFunction
+from config.settings import CHROMA_ADD_BATCH_SIZE, CHROMA_COLLECTION_NAME
+from src.memory.embeddings import (
+    SentenceTransformerEmbeddingFunction,
+    embed_for_query,
+)
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Cache global do client
@@ -99,9 +96,8 @@ def add_documents(
     collection = get_or_create_collection(collection_name)
     
     logger.info(f"Adicionando {len(documents)} documentos à collection...")
-    
-    # ChromaDB tem limite de batch, então dividimos em lotes
-    batch_size = 100
+
+    batch_size = CHROMA_ADD_BATCH_SIZE
     for i in range(0, len(documents), batch_size):
         batch_docs = documents[i:i + batch_size]
         batch_meta = metadatas[i:i + batch_size]
@@ -120,31 +116,33 @@ def add_documents(
 def query_collection(
     query_text: str,
     n_results: int = 5,
-    collection_name: str = CHROMA_COLLECTION_NAME
+    collection_name: str = CHROMA_COLLECTION_NAME,
+    where: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Realiza busca semântica na collection.
-    
+
     Args:
         query_text: Texto da consulta
         n_results: Número de resultados a retornar
         collection_name: Nome da collection
-        
+        where: Filtro opcional de metadados (ex.: {"video_id": "..."})
+
     Returns:
         Dict com resultados da busca
     """
     collection = get_or_create_collection(collection_name)
-    
-    # Usa embedding function com prefixo de query para modelos E5
-    query_embedding_fn = SentenceTransformerEmbeddingFunction(is_query=True)
-    query_embedding = query_embedding_fn([query_text])
-    
-    results = collection.query(
-        query_embeddings=query_embedding,
-        n_results=n_results,
-        include=["documents", "metadatas", "distances"]
-    )
-    
+    query_embedding = embed_for_query([query_text])
+
+    kwargs = {
+        "query_embeddings": query_embedding,
+        "n_results": n_results,
+        "include": ["documents", "metadatas", "distances"],
+    }
+    if where is not None:
+        kwargs["where"] = where
+
+    results = collection.query(**kwargs)
     return results
 
 
@@ -188,7 +186,7 @@ def get_collection_info(collection_name: str = CHROMA_COLLECTION_NAME) -> Dict[s
 
 
 if __name__ == "__main__":
-    # Teste simples
+    logging.basicConfig(level=logging.INFO)
     print("Testando Vector Store...")
     
     # Info da collection
