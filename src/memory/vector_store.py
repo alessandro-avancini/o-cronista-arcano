@@ -185,6 +185,23 @@ def get_collection_info(collection_name: str = CHROMA_COLLECTION_NAME) -> Dict[s
     }
 
 
+def list_video_ids(collection_name: str = CHROMA_COLLECTION_NAME) -> List[str]:
+    """
+    Retorna lista de video_id únicos presentes na collection.
+    """
+    collection = get_or_create_collection(collection_name)
+    total = collection.count()
+    if total == 0:
+        return []
+    result = collection.get(
+        limit=min(total, 50_000),
+        include=["metadatas"],
+    )
+    metadatas = result.get("metadatas") or []
+    ids = sorted({m.get("video_id") for m in metadatas if m and m.get("video_id")})
+    return ids
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     print("Testando Vector Store...")

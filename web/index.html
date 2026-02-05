@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>O Cronista Arcano</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Almendra:ital,wght@0,400;0,700;1,400&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <h1 class="logo">O Cronista Arcano</h1>
+        <button type="button" class="btn-transmutar" id="btnTransmutar" aria-label="Transmutar novo vídeo">
+          <span class="btn-icon">📜</span>
+          <span>Transmutar Novo Vídeo</span>
+        </button>
+      </header>
+      <nav class="grimorios" aria-label="Grimórios de Campanha">
+        <p class="sidebar-label">Grimórios de Campanha</p>
+        <ul class="video-list" id="videoList"></ul>
+        <p class="empty-state" id="emptyState">Nenhum vídeo extraído ainda.</p>
+      </nav>
+    </aside>
+
+    <main class="panel">
+      <header class="panel-header">
+        <h2 class="panel-title" id="panelTitle">Selecione um grimório</h2>
+        <button type="button" class="btn-info" id="btnInfo" aria-label="Informações" title="Informações">ⓘ</button>
+      </header>
+
+      <div class="messages" id="messages">
+        <div class="welcome" id="welcome">
+          <p>Escolha um vídeo na barra lateral para conversar com a memória da campanha.</p>
+        </div>
+      </div>
+
+      <footer class="input-area">
+        <form class="input-form" id="chatForm">
+          <label for="userInput" class="sr-only">Fale com a memória da campanha</label>
+          <input
+            type="text"
+            id="userInput"
+            class="input-text"
+            placeholder="Fale com a memória da campanha..."
+            autocomplete="off"
+            disabled
+          >
+          <span class="input-actions">
+            <button type="button" class="btn-icon-only" aria-label="Anexo">📎</button>
+            <button type="button" class="btn-icon-only" aria-label="Microfone">🎤</button>
+            <button type="submit" class="btn-enviar" aria-label="Enviar mensagem">Enviar</button>
+          </span>
+        </form>
+      </footer>
+    </main>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay" hidden>
+    <div class="modal">
+      <h3 class="modal-title">Transmutar Novo Vídeo</h3>
+      <p class="modal-desc">Informe a URL do vídeo do YouTube para extrair e indexar a sessão.</p>
+      <form id="processarForm">
+        <label for="videoUrl">URL do YouTube</label>
+        <input type="url" id="videoUrl" name="url" placeholder="https://www.youtube.com/watch?v=..." required>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="btnCancelar">Cancelar</button>
+          <button type="submit" class="btn-primary">Transmutar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay" hidden>
+    <div class="loading-content">
+      <div class="rune" aria-hidden="true"></div>
+      <p class="loading-text">Transmutando o vídeo...</p>
+      <p class="loading-sub">Isso pode levar alguns minutos.</p>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  const API_BASE = "";
+  const videoListEl = document.getElementById("videoList");
+  const emptyStateEl = document.getElementById("emptyState");
+  const panelTitleEl = document.getElementById("panelTitle");
+  const messagesEl = document.getElementById("messages");
+  const welcomeEl = document.getElementById("welcome");
+  const userInputEl = document.getElementById("userInput");
+  const chatForm = document.getElementById("chatForm");
+  const btnTransmutar = document.getElementById("btnTransmutar");
+  const modalOverlay = document.getElementById("modalOverlay");
+  const processarForm = document.getElementById("processarForm");
+  const btnCancelar = document.getElementById("btnCancelar");
+  const loadingOverlay = document.getElementById("loadingOverlay");
+  let videos = [];
+  let selectedVideoId = null;
+  const historyByVideo = {};
+  function getHistory() {
+    if (!selectedVideoId) return [];
+    if (!historyByVideo[selectedVideoId]) historyByVideo[selectedVideoId] = [];
+    return historyByVideo[selectedVideoId];
+  }
+  function addToHistory(role, content) {
+    getHistory().push({ role, content });
+  }
+  function escapeAttr(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+  function escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+  function renderVideos() {
+    const empty = !videos.length;
+    videoListEl.classList.toggle("empty", empty);
+    if (empty) {
+      videoListEl.innerHTML = "";
+      emptyStateEl.style.display = "block";
+      return;
+    }
+    emptyStateEl.style.display = "none";
+    videoListEl.innerHTML = videos.map(function (v) {
+      return '<li><button type="button" class="video-item ' + (v.id === selectedVideoId ? "active" : "") + '" data-video-id="' + escapeAttr(v.id) + '"><span class="video-name">' + escapeHtml(v.nome) + '</span></button></li>';
+    }).join("");
+    videoListEl.querySelectorAll(".video-item").forEach(function (btn) {
+      btn.addEventListener("click", function () { selectVideo(btn.dataset.videoId); });
+    });
+  }
+  function selectVideo(videoId) {
+    selectedVideoId = videoId;
+    panelTitleEl.textContent = videos.find(function (v) { return v.id === videoId; })?.nome ?? videoId;
+    userInputEl.disabled = false;
+    userInputEl.focus();
+    welcomeEl.style.display = getHistory().length ? "none" : "block";
+    renderMessages();
+    renderVideos();
+  }
+  function renderMessages() {
+    const history = getHistory();
+    const toShow = history.slice();
+    welcomeEl.style.display = toShow.length ? "none" : "block";
+    messagesEl.querySelectorAll(".msg").forEach(function (n) { n.remove(); });
+    toShow.forEach(function (m) {
+      const div = document.createElement("div");
+      div.className = "msg " + m.role;
+      div.innerHTML = '<span class="role">' + (m.role === "user" ? "Você" : "Cronista") + '</span><div class="content">' + escapeHtml(m.content) + "</div>";
+      messagesEl.appendChild(div);
+    });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  async function fetchVideos() {
+    try {
+      const r = await fetch(API_BASE + "/videos");
+      if (!r.ok) throw new Error("Falha ao carregar vídeos");
+      const data = await r.json();
+      videos = data.videos || [];
+      renderVideos();
+      if (selectedVideoId && !videos.some(function (v) { return v.id === selectedVideoId; })) {
+        selectedVideoId = null;
+        panelTitleEl.textContent = "Selecione um grimório";
+        userInputEl.disabled = true;
+        renderMessages();
+      }
+    } catch (e) {
+      console.error(e);
+      videos = [];
+      renderVideos();
+    }
+  }
+  chatForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var text = userInputEl.value.trim();
+    if (!text || !selectedVideoId) return;
+    userInputEl.value = "";
+    addToHistory("user", text);
+    renderMessages();
+    addToHistory("bot", "…");
+    renderMessages();
+    try {
+      const res = await fetch(API_BASE + "/perguntar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: selectedVideoId, pergunta: text }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      const last = getHistory();
+      const idx = last.findIndex(function (m) { return m.role === "bot" && m.content === "…"; });
+      function setContent(txt) {
+        if (idx !== -1) last[idx].content = txt;
+        else getHistory().push({ role: "bot", content: txt });
+      }
+      if (res.ok) {
+        setContent(data.resposta || "Sem resposta.");
+      } else {
+        var detail = data.detail;
+        var msg = Array.isArray(detail) ? (detail[0] && detail[0].msg) || JSON.stringify(detail) : typeof detail === "string" ? detail : "Erro ao consultar.";
+        setContent("Erro: " + msg);
+      }
+    } catch (err) {
+      const last = getHistory();
+      const idx = last.findIndex(function (m) { return m.role === "bot" && m.content === "…"; });
+      if (idx !== -1) last[idx].content = "Erro ao consultar: " + err.message;
+    }
+    renderMessages();
+  });
+  btnTransmutar.addEventListener("click", function () {
+    processarForm.reset();
+    modalOverlay.hidden = false;
+  });
+  btnCancelar.addEventListener("click", function () { modalOverlay.hidden = true; });
+  modalOverlay.addEventListener("click", function (e) {
+    if (e.target === modalOverlay) modalOverlay.hidden = true;
+  });
+  processarForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var urlInput = document.getElementById("videoUrl");
+    var url = urlInput.value.trim();
+    if (!url) return;
+    modalOverlay.hidden = true;
+    loadingOverlay.hidden = false;
+    try {
+      const res = await fetch(API_BASE + "/processar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        var d = data.detail;
+        throw new Error(Array.isArray(d) ? (d[0] && d[0].msg) || "Falha ao processar" : typeof d === "string" ? d : "Falha ao processar");
+      }
+      await fetchVideos();
+      if (data.video_id) selectVideo(data.video_id);
+    } catch (err) {
+      alert("Erro: " + (err.message || "Falha ao processar o vídeo."));
+    } finally {
+      loadingOverlay.hidden = true;
+    }
+  });
+  fetchVideos();
+})();
+  </script>
+</body>
+</html>

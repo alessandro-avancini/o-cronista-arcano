@@ -11,11 +11,11 @@ Uso:
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 import ollama
 
 from config.settings import RAG_TOP_K_DEFAULT
-from src.memory.search import semantic_search, SearchResult
+from src.memory.search import semantic_search, search_by_video, SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -52,21 +52,17 @@ def chat_with_context(
     question: str,
     model: str = DEFAULT_MODEL,
     top_k: int = RAG_TOP_K_DEFAULT,
+    video_id: Optional[str] = None,
 ) -> str:
     """
     Responde uma pergunta usando RAG (Retrieval-Augmented Generation).
-    
-    Args:
-        question: Pergunta do usuário
-        model: Nome do modelo Ollama
-        top_k: Número de chunks de contexto a recuperar
-        
-    Returns:
-        Resposta gerada pelo modelo
+    Se video_id for informado, a busca é restrita ao contexto daquele vídeo.
     """
-    # 1. Busca contexto relevante no banco vetorial
     logger.info(f"🔍 Buscando contexto para: '{question}'")
-    results = semantic_search(question, top_k=top_k)
+    if video_id:
+        results = search_by_video(question, video_id=video_id, top_k=top_k)
+    else:
+        results = semantic_search(question, top_k=top_k)
     
     # 2. Formata o contexto
     context = format_context(results)
