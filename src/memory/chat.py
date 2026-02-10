@@ -15,36 +15,23 @@ from typing import List, Optional
 import ollama
 
 from config.settings import RAG_TOP_K_DEFAULT
-from src.memory.search import semantic_search, search_by_video, SearchResult
+from src.memory.search import SearchResult
+from src.rag import rag_query
 
 logger = logging.getLogger(__name__)
 
-# Modelo padrão do Ollama
 DEFAULT_MODEL = "gemma3:4b"
-
-# Template do prompt com contexto
-RAG_PROMPT_TEMPLATE = """Você é o Cronista Arcano, um assistente especializado em sessões de RPG de mesa.
-Use o contexto abaixo para responder à pergunta do usuário.
-
-CONTEXTO DAS TRANSCRIÇÕES:
-{context}
-
-PERGUNTA: {question}
-
-RESPOSTA:"""
+EXIT_COMMANDS = ("sair", "exit", "quit", "q")
 
 
 def format_context(results: List[SearchResult]) -> str:
     """Formata os resultados da busca como contexto para o LLM."""
     if not results:
         return "Nenhum contexto relevante encontrado."
-    
-    context_parts = []
-    for i, result in enumerate(results, 1):
-        context_parts.append(
-            f"[Trecho {i} - {result.video_id}]\n{result.content}"
-        )
-    
+    context_parts = [
+        f"[Trecho {i} - {r.video_id}]\n{r.content}"
+        for i, r in enumerate(results, 1)
+    ]
     return "\n\n---\n\n".join(context_parts)
 
 
@@ -56,32 +43,10 @@ def chat_with_context(
 ) -> str:
     """
     Responde uma pergunta usando RAG (Retrieval-Augmented Generation).
-    Se video_id for informado, a busca é restrita ao contexto daquele vídeo.
+    Delega ao pipeline rag_query. Se video_id for informado, a busca é restrita ao contexto daquele vídeo.
     """
-    logger.info(f"🔍 Buscando contexto para: '{question}'")
-    if video_id:
-        results = search_by_video(question, video_id=video_id, top_k=top_k)
-    else:
-        results = semantic_search(question, top_k=top_k)
-    
-    # 2. Formata o contexto
-    context = format_context(results)
-    
-    # 3. Monta o prompt completo
-    prompt = RAG_PROMPT_TEMPLATE.format(
-        context=context,
-        question=question
-    )
-    
-    # 4. Gera resposta com Ollama
-    logger.info(f"🤖 Gerando resposta com {model}...")
-    
-    response = ollama.chat(
-        model=model,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    
-    return response["message"]["content"]
+    result = rag_query(question, video_id=video_id, top_k=top_k, model=model)
+    return result.answer
 
 
 def interactive_chat(model: str = DEFAULT_MODEL):
@@ -96,7 +61,7 @@ def interactive_chat(model: str = DEFAULT_MODEL):
         try:
             question = input("👤 Você: ").strip()
             
-            if question.lower() in ['sair', 'exit', 'quit', 'q']:
+            if question.lower() in EXIT_COMMANDS:
                 print("\n👋 Até a próxima aventura!")
                 break
             

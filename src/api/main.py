@@ -18,7 +18,7 @@ import config.helper as config
 from src.extraction.run_pipeline import run_pipeline
 from src.memory.ingest import ingest_transcript
 from src.memory.vector_store import list_video_ids
-from src.memory.chat import chat_with_context
+from src.agent.runner import agent_query
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,14 @@ def _web_path(*parts: str) -> Path:
     return WEB_DIR.joinpath(*parts)
 
 
+def _serve_static_file(relative_parts: tuple[str, ...], media_type: str, not_found_detail: str):
+    """Serve um arquivo estático ou levanta 404."""
+    path = _web_path(*relative_parts)
+    if path.exists():
+        return FileResponse(path, media_type=media_type)
+    raise HTTPException(status_code=404, detail=not_found_detail)
+
+
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
     logger.info("Interface: pasta web em %s", WEB_DIR)
@@ -60,19 +68,13 @@ def startup():
 @app.get("/js/app.js")
 def serve_js():
     """Serve o script da interface para garantir que sempre carregue."""
-    path = _web_path("js", "app.js")
-    if path.exists():
-        return FileResponse(path, media_type="application/javascript")
-    raise HTTPException(status_code=404, detail="app.js não encontrado")
+    return _serve_static_file(("js", "app.js"), "application/javascript", "app.js não encontrado")
 
 
 @app.get("/css/style.css")
 def serve_css():
     """Serve o CSS da interface."""
-    path = _web_path("css", "style.css")
-    if path.exists():
-        return FileResponse(path, media_type="text/css")
-    raise HTTPException(status_code=404, detail="style.css não encontrado")
+    return _serve_static_file(("css", "style.css"), "text/css", "style.css não encontrado")
 
 
 class ProcessarBody(BaseModel):
@@ -111,7 +113,6 @@ async def processar(body: ProcessarBody):
         raise HTTPException(status_code=400, detail="URL é obrigatória")
 
     config.setup_directories()
-
     try:
         result = await asyncio.to_thread(run_pipeline, url)
     except Exception as e:
@@ -133,16 +134,15 @@ async def processar(body: ProcessarBody):
 
     try:
         ingest_result = await asyncio.to_thread(ingest_transcript, transcript_path)
-        if not ingest_result.success:
-            raise HTTPException(
-                status_code=500,
-                detail=ingest_result.error_message or "Falha na ingestão",
-            )
-    except HTTPException:
-        raise
     except Exception as e:
         logger.exception("Erro na ingestão")
         raise HTTPException(status_code=500, detail=str(e))
+
+    if not ingest_result.success:
+        raise HTTPException(
+            status_code=500,
+            detail=ingest_result.error_message or "Falha na ingestão",
+        )
 
     return {
         "success": True,
@@ -153,19 +153,19 @@ async def processar(body: ProcessarBody):
 
 @app.post("/perguntar")
 async def perguntar(body: PerguntarBody):
-    """Recebe ID do vídeo e pergunta; realiza RAG e retorna a resposta da IA."""
-    video_id = body.video_id.strip()
+    """Recebe ID do vídeo e pergunta; executa o agente (com tool RAG quando aplicável) e retorna a resposta."""
+    video_id = body.video_id.strip() or None
     pergunta = body.pergunta.strip()
     if not pergunta:
         raise HTTPException(status_code=400, detail="Pergunta é obrigatória")
 
     try:
-        resposta = await asyncio.to_thread(
-            chat_with_context,
+        result = await asyncio.to_thread(
+            agent_query,
             pergunta,
-            video_id=video_id or None,
+            video_id=video_id,
         )
-        return {"resposta": resposta}
+        return {"resposta": result.answer, "used_rag": result.used_rag, "sources": result.sources}
     except Exception as e:
         logger.exception("Erro ao perguntar")
         raise HTTPException(status_code=500, detail=str(e))

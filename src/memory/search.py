@@ -29,25 +29,22 @@ class SearchResult:
 
 def _results_to_search_results(results: Dict[str, Any]) -> List[SearchResult]:
     """Converte resultado bruto do ChromaDB em lista de SearchResult."""
-    if not results["documents"][0]:
+    docs = results.get("documents", [[]])[0]
+    if not docs:
         return []
-    search_results = []
-    for doc, meta, dist in zip(
-        results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0],
-    ):
-        search_results.append(
-            SearchResult(
-                content=doc,
-                video_id=meta.get("video_id", "unknown"),
-                source_file=meta.get("source_file", "unknown"),
-                chunk_index=meta.get("chunk_index", -1),
-                distance=dist,
-                relevance_score=max(0, 1 - dist),
-            )
+    metadatas = results.get("metadatas", [[]])[0]
+    distances = results.get("distances", [[]])[0]
+    return [
+        SearchResult(
+            content=doc,
+            video_id=meta.get("video_id", "unknown"),
+            source_file=meta.get("source_file", "unknown"),
+            chunk_index=meta.get("chunk_index", -1),
+            distance=dist,
+            relevance_score=max(0, 1 - dist),
         )
-    return search_results
+        for doc, meta, dist in zip(docs, metadatas, distances)
+    ]
 
 
 def semantic_search(
@@ -128,7 +125,7 @@ def interactive_search():
         try:
             query = input("🔍 Pergunta: ").strip()
             
-            if query.lower() in ['sair', 'exit', 'quit', 'q']:
+            if query.lower() in ("sair", "exit", "quit", "q"):
                 print("\n👋 Até logo!")
                 break
             

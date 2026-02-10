@@ -15,7 +15,7 @@ MASTER_PROMPT_FILENAME = "master_prompt.txt"
 TRANSCRIPTION_PROMPT_FILENAME = "transcription_prompt.txt"
 
 # --- Gemini / LLM ---
-MODEL_NAME = "gemini-2.5-flash-lite"
+MODEL_NAME = "gemini-2.5-flash"
 
 # --- Audio pipeline ---
 DEFAULT_AUDIO_CHUNK_MINUTES = 20
@@ -32,6 +32,9 @@ CHROMA_ADD_BATCH_SIZE = 100
 
 # --- RAG chat ---
 RAG_TOP_K_DEFAULT = 3
+
+# --- Agent (Strands) ---
+AGENT_MODEL = "granite4:3b-h"
 
 # --- Search ---
 SEARCH_DEFAULT_TOP_K = 5

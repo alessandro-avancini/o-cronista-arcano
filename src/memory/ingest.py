@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import config.helper as config
 from config.settings import CHUNK_SIZE, CHUNK_OVERLAP, FULL_TRANSCRIPT_FILENAME
-from src.memory.text_chunker import split_text, TextChunk
+from src.memory.text_chunker import TextChunk, split_text
 from src.memory.vector_store import (
     add_documents,
     get_collection_info,
@@ -83,6 +83,28 @@ def extract_video_id_from_path(transcript_path: Path) -> str:
     return transcript_path.parent.name
 
 
+def _chunks_to_document_batches(
+    chunks: List[TextChunk],
+    video_id: str,
+    transcript_path: Path,
+) -> tuple[List[str], List[Dict[str, Any]], List[str]]:
+    """
+    Converte chunks em listas de documentos, metadados e IDs para o ChromaDB.
+    """
+    documents = []
+    metadatas = []
+    ids = []
+    for chunk in chunks:
+        documents.append(chunk.content)
+        metadatas.append({
+            "video_id": video_id,
+            "source_file": str(transcript_path),
+            "chunk_index": chunk.index,
+        })
+        ids.append(generate_chunk_id(video_id, chunk.index, chunk.content))
+    return documents, metadatas, ids
+
+
 def ingest_transcript(transcript_path: Path) -> IngestResult:
     """
     Ingere uma transcrição no banco vetorial.
@@ -125,24 +147,8 @@ def ingest_transcript(transcript_path: Path) -> IngestResult:
                 success=False,
                 error_message="Nenhum chunk gerado"
             )
-        
-        # Prepara dados para ingestão
-        documents = []
-        metadatas = []
-        ids = []
-        
-        for chunk in chunks:
-            chunk_id = generate_chunk_id(video_id, chunk.index, chunk.content)
-            
-            documents.append(chunk.content)
-            metadatas.append({
-                "video_id": video_id,
-                "source_file": str(transcript_path),
-                "chunk_index": chunk.index
-            })
-            ids.append(chunk_id)
-        
-        # Adiciona ao banco vetorial
+
+        documents, metadatas, ids = _chunks_to_document_batches(chunks, video_id, transcript_path)
         add_documents(documents, metadatas, ids)
         
         logger.info(f"  ✅ {len(chunks)} chunks ingeridos para: {video_id}")
