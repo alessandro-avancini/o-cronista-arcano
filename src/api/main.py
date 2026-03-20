@@ -1,16 +1,19 @@
 """
 API FastAPI do Cronista Arcano
 ==============================
-Endpoints: GET /videos, POST /processar, POST /perguntar
+Endpoints: GET /videos, POST /processar, POST /perguntar, POST /perguntar/stream
 """
 
 import asyncio
+import json
 import logging
+import queue
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -18,6 +21,7 @@ import config.helper as config
 from src.extraction.run_pipeline import run_pipeline
 from src.memory.ingest import ingest_transcript
 from src.memory.vector_store import list_video_ids
+from src.memory.embeddings import get_embedding_model
 from src.agent.runner import agent_query
 
 logger = logging.getLogger(__name__)
@@ -63,6 +67,16 @@ else:
 def startup():
     if WEB_DIR.exists():
         logger.info("Cronista Arcano: interface em http://localhost:8000/ (web em %s)", WEB_DIR)
+
+    async def _warmup_embeddings():
+        await asyncio.sleep(2)
+        try:
+            await asyncio.to_thread(get_embedding_model)
+            logger.info("Warm-up do modelo de embeddings concluído.")
+        except Exception as e:
+            logger.warning("Warm-up do modelo de embeddings falhou (primeira pergunta pode demorar): %s", e)
+
+    asyncio.create_task(_warmup_embeddings())
 
 
 @app.get("/js/app.js")
@@ -169,6 +183,47 @@ async def perguntar(body: PerguntarBody):
     except Exception as e:
         logger.exception("Erro ao perguntar")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _run_agent_with_stream_queue(pergunta: str, video_id: Optional[str], q: queue.Queue) -> None:
+    """Roda em thread: executa o agente com stream_queue; a tool RAG envia eventos para q."""
+    try:
+        result = agent_query(pergunta, video_id=video_id, stream_queue=q)
+        q.put({"type": "agent_done", "answer": result.answer, "used_rag": result.used_rag, "sources": result.sources})
+    except Exception as e:
+        q.put({"type": "error", "error": str(e)})
+    finally:
+        q.put(None)
+
+
+async def _sse_generator(pergunta: str, video_id: Optional[str]):
+    """Async generator que lê eventos da fila (tool RAG + agent_done) e formata como SSE."""
+    q = queue.Queue()
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _run_agent_with_stream_queue, pergunta, video_id, q)
+    while True:
+        event = await asyncio.to_thread(lambda: q.get())
+        if event is None:
+            break
+        if event.get("type") == "error":
+            yield f"data: {json.dumps(event)}\n\n"
+            break
+        yield f"data: {json.dumps(event)}\n\n"
+
+
+@app.post("/perguntar/stream")
+async def perguntar_stream(body: PerguntarBody):
+    """Resposta em streaming (SSE). Executa o agente; quando a tool RAG é invocada, os tokens são enviados em tempo real."""
+    video_id = body.video_id.strip() or None
+    pergunta = body.pergunta.strip()
+    if not pergunta:
+        raise HTTPException(status_code=400, detail="Pergunta é obrigatória")
+
+    return StreamingResponse(
+        _sse_generator(pergunta, video_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/")

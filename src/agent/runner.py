@@ -16,6 +16,9 @@ from src.rag import rag_tool
 
 logger = logging.getLogger(__name__)
 
+_ollama_model: Optional[OllamaModel] = None
+_agent: Optional[Agent] = None
+
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "agent_system.txt"
 OLLAMA_HOST = "http://localhost:11434"
 ANSWER_FALLBACK = "Sem resposta."
@@ -106,25 +109,36 @@ def _extract_used_rag_and_sources(strands_result: Any) -> tuple[bool, list[dict[
     return used_rag, sources
 
 
+def _get_agent(model: str = AGENT_MODEL) -> Agent:
+    """Retorna o agente singleton; cria na primeira chamada."""
+    global _ollama_model, _agent
+    if _agent is None:
+        _ollama_model = OllamaModel(host=OLLAMA_HOST, model_id=model)
+        _agent = Agent(
+            model=_ollama_model,
+            tools=[rag_tool],
+            system_prompt=_load_system_prompt(),
+        )
+    return _agent
+
+
 def agent_query(
     pergunta: str,
     video_id: Optional[str] = None,
     model: str = AGENT_MODEL,
+    stream_queue: Any = None,
 ) -> AgentResult:
     """
     Executa o agente Cronista Arcano: responde direto ou invoca a tool RAG conforme a pergunta.
+    Reutiliza uma única instância do Agent entre chamadas.
+    Se stream_queue for passado, a tool RAG envia eventos para a fila (streaming).
     """
-    system_prompt = _load_system_prompt()
-    if video_id:
-        system_prompt += f'\n\nContexto atual: o usuário está no vídeo/sessão "{video_id}". Use esse video_id ao consultar transcrições quando fizer sentido.'
-
-    ollama_model = OllamaModel(host=OLLAMA_HOST, model_id=model)
-    agent = Agent(
-        model=ollama_model,
-        tools=[rag_tool],
-        system_prompt=system_prompt,
-    )
-    invocation_state = {"video_id": video_id} if video_id is not None else {}
+    agent = _get_agent(model=model)
+    invocation_state = {}
+    if video_id is not None:
+        invocation_state["video_id"] = video_id
+    if stream_queue is not None:
+        invocation_state["stream_queue"] = stream_queue
 
     strands_result = agent(pergunta.strip(), invocation_state=invocation_state)
     answer = _extract_answer(strands_result) or ANSWER_FALLBACK

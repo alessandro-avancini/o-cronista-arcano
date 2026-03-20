@@ -1,10 +1,10 @@
-from typing import Optional
+from typing import Any, Optional
 
 from strands import tool
 from strands.types.tools import ToolContext
 
-from src.rag.models import RAGResult
-from src.rag.pipeline import rag_query
+from src.rag.models import RAGResult, RAGSource
+from src.rag.pipeline import rag_query, rag_query_stream
 
 
 def _resolve_video_id(
@@ -24,6 +24,16 @@ def _resolve_video_id(
         inner = state.get("invocation_state") or {}
         if isinstance(inner, dict):
             return inner.get("video_id")
+    return None
+
+
+def _get_stream_queue(tool_context: Optional[ToolContext]) -> Any:
+    """Obtém stream_queue do invocation_state se presente."""
+    if not tool_context or not hasattr(tool_context, "invocation_state"):
+        return None
+    state = tool_context.invocation_state
+    if isinstance(state, dict):
+        return state.get("stream_queue")
     return None
 
 
@@ -50,5 +60,28 @@ def consultar_transcricoes(
         video_id: ID do vídeo/sessão para filtrar (opcional). Se não informado, pode ser usado o contexto da conversa.
     """
     vid = _resolve_video_id(video_id, tool_context)
+    stream_queue = _get_stream_queue(tool_context)
+
+    if stream_queue is not None:
+        accumulated = []
+        sources_list = []
+        for event in rag_query_stream(question, video_id=vid):
+            stream_queue.put(event)
+            if event.get("type") == "token":
+                accumulated.append(event.get("content", ""))
+            elif event.get("type") == "sources":
+                sources_list = event.get("sources") or []
+        sources = [
+            RAGSource(
+                video_id=s.get("video_id", ""),
+                content="",
+                chunk_index=s.get("chunk_index", 0),
+                relevance_score=float(s.get("relevance_score", 0)),
+            )
+            for s in sources_list
+        ]
+        result = RAGResult(answer="".join(accumulated), sources=sources)
+        return _format_rag_response(result)
+
     result = rag_query(question, video_id=vid)
     return _format_rag_response(result)

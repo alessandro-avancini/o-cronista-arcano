@@ -24,6 +24,7 @@ DEFAULT_AUDIO_CHUNK_LENGTH_MS = (
 )
 
 # --- Vectorial memory ---
+# CHUNK_SIZE e CHUNK_OVERLAP em tokens (medidos pelo tokenizer do EMBEDDING_MODEL)
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100
 EMBEDDING_MODEL = "intfloat/multilingual-e5-large"
@@ -38,4 +39,4 @@ AGENT_MODEL = "granite4:3b-h"
 
 # --- Search ---
 SEARCH_DEFAULT_TOP_K = 5
-SEARCH_PREVIEW_MAX_CHARS = 500
+SEARCH_PREVIEW_MAX_CHARS = 1000

@@ -12,6 +12,7 @@ dependencies = [
     "pydub>=0.25.1",
     "python-dotenv>=1.0.0",
     "sentence-transformers>=5.0.0",
+    "strands-agents[ollama]>=0.1.0",
     "uvicorn[standard]>=0.32.0",
     "yt-dlp>=2025.10.0",
 ]
@@ -24,3 +25,4 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["slow: marks tests that need Ollama and full ingest (deselect with -m 'not slow')"]

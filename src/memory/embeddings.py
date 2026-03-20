@@ -82,6 +82,19 @@ def embed_for_query(texts: List[str]) -> List[List[float]]:
     return model.encode(texts).tolist()
 
 
+def embed_documents(texts: List[str]) -> List[List[float]]:
+    """
+    Gera embeddings para documentos a indexar (prefixo "passage: " em modelos E5).
+    Use na ingestão quando o vetor deve ser do resumo e o documento armazenado for outro texto.
+    """
+    if not texts:
+        return []
+    model = get_embedding_model()
+    if "e5" in EMBEDDING_MODEL.lower():
+        texts = ["passage: " + t for t in texts]
+    return model.encode(texts).tolist()
+
+
 class SentenceTransformerEmbeddingFunction(chromadb.EmbeddingFunction):
     """
     Função de embedding compatível com ChromaDB.

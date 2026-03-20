@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # Cache global do client
 _client_cache: Optional[chromadb.PersistentClient] = None
 
+# Cache da collection por nome (evita get_or_create_collection e nova embedding function a cada busca)
+_collection_cache: Dict[str, chromadb.Collection] = {}
+
 
 def get_chroma_client() -> chromadb.PersistentClient:
     """
@@ -54,22 +57,19 @@ def get_or_create_collection(
 ) -> chromadb.Collection:
     """
     Obtém ou cria uma collection no ChromaDB.
-    
-    Args:
-        collection_name: Nome da collection
-        
-    Returns:
-        chromadb.Collection: Collection configurada com embedding function
+    Usa cache para evitar recriação e nova embedding function a cada chamada.
     """
+    if collection_name in _collection_cache:
+        return _collection_cache[collection_name]
+
     client = get_chroma_client()
     embedding_function = SentenceTransformerEmbeddingFunction()
-    
     collection = client.get_or_create_collection(
         name=collection_name,
         embedding_function=embedding_function,
         metadata={"description": "Transcrições do Cronista Arcano"}
     )
-    
+    _collection_cache[collection_name] = collection
     logger.info(f"Collection '{collection_name}' obtida. Documentos: {collection.count()}")
     return collection
 
@@ -78,23 +78,30 @@ def add_documents(
     documents: List[str],
     metadatas: List[Dict[str, Any]],
     ids: List[str],
-    collection_name: str = CHROMA_COLLECTION_NAME
+    collection_name: str = CHROMA_COLLECTION_NAME,
+    embeddings: Optional[List[List[float]]] = None,
 ) -> None:
     """
     Adiciona documentos à collection.
-    
+
     Args:
-        documents: Lista de textos
+        documents: Lista de textos (armazenados e retornados na query)
         metadatas: Lista de metadados para cada documento
         ids: Lista de IDs únicos para cada documento
         collection_name: Nome da collection
+        embeddings: Opcional. Se fornecido, estes vetores são usados em vez de
+            embedar documents (ex.: small-to-big RAG com vetor do resumo).
     """
     if not documents:
         logger.warning("Nenhum documento para adicionar")
         return
-    
+    if embeddings is not None and len(embeddings) != len(documents):
+        raise ValueError(
+            f"embeddings length ({len(embeddings)}) must match documents length ({len(documents)})"
+        )
+
     collection = get_or_create_collection(collection_name)
-    
+
     logger.info(f"Adicionando {len(documents)} documentos à collection...")
 
     batch_size = CHROMA_ADD_BATCH_SIZE
@@ -102,14 +109,16 @@ def add_documents(
         batch_docs = documents[i:i + batch_size]
         batch_meta = metadatas[i:i + batch_size]
         batch_ids = ids[i:i + batch_size]
-        
-        collection.add(
-            documents=batch_docs,
-            metadatas=batch_meta,
-            ids=batch_ids
-        )
+        add_kwargs: Dict[str, Any] = {
+            "documents": batch_docs,
+            "metadatas": batch_meta,
+            "ids": batch_ids,
+        }
+        if embeddings is not None:
+            add_kwargs["embeddings"] = embeddings[i:i + batch_size]
+        collection.add(**add_kwargs)
         logger.info(f"  Batch {i // batch_size + 1}: {len(batch_docs)} docs adicionados")
-    
+
     logger.info(f"Total de documentos na collection: {collection.count()}")
 
 
@@ -149,16 +158,12 @@ def query_collection(
 def delete_collection(collection_name: str = CHROMA_COLLECTION_NAME) -> bool:
     """
     Remove uma collection do ChromaDB.
-    
-    Args:
-        collection_name: Nome da collection a remover
-        
-    Returns:
-        bool: True se removida com sucesso
+    Limpa o cache para que a próxima get_or_create_collection crie nova instância.
     """
     try:
         client = get_chroma_client()
         client.delete_collection(collection_name)
+        _collection_cache.pop(collection_name, None)
         logger.info(f"Collection '{collection_name}' removida com sucesso")
         return True
     except Exception as e:

@@ -131,36 +131,97 @@
     addToHistory("bot", botEntry.content);
     renderMessages();
 
+    const submitBtn = chatForm.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    userInputEl.disabled = true;
+
+    let accumulated = "";
+    let sources = [];
+    const last = getHistory();
+    const botIdx = last.findIndex((m) => m.role === "bot" && m.content === "…");
+    const botContentEl = messagesEl.querySelector(".msg.bot:last-child .content");
+
+    const setBotContent = (txt) => {
+        if (botIdx !== -1) last[botIdx].content = txt;
+        else if (last.length) last[last.length - 1].content = txt;
+        if (botContentEl) botContentEl.textContent = txt;
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      };
+
     try {
-      const res = await fetch(API_BASE + "/perguntar", {
+      const res = await fetch(API_BASE + "/perguntar/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ video_id: selectedVideoId, pergunta: text }),
       });
-      const data = await res.json().catch(() => ({}));
-      const last = getHistory();
-      const idx = last.findIndex((m) => m.role === "bot" && m.content === "…");
-      const setContent = (txt) => {
-        if (idx !== -1) last[idx].content = txt;
-        else getHistory().push({ role: "bot", content: txt });
-      };
-      if (res.ok) {
-        setContent(data.resposta || "Sem resposta.");
-      } else {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         const detail = data.detail;
         const msg = Array.isArray(detail)
           ? (detail[0] && detail[0].msg) || JSON.stringify(detail)
           : typeof detail === "string"
             ? detail
             : "Erro ao consultar.";
-        setContent("Erro: " + msg);
+        setBotContent("Erro: " + msg);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamDone = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === "sources" && data.sources) sources = data.sources;
+              else if (data.type === "token" && data.content) {
+                accumulated += data.content;
+                setBotContent(accumulated);
+              } else if (data.type === "agent_done") {
+                const finalAnswer = data.answer != null ? String(data.answer) : accumulated;
+                const srcs = data.sources || sources;
+                const finalContent = srcs.length
+                  ? finalAnswer + "\n\nFontes: " + srcs.map((s) => s.video_id || s.source).join(", ")
+                  : finalAnswer;
+                setBotContent(finalContent);
+                if (botIdx !== -1) last[botIdx].content = finalContent;
+                streamDone = true;
+                break;
+              } else if (data.type === "done") {
+                // RAG stream finished, keep reading for agent_done
+              } else if (data.type === "error") {
+                setBotContent("Erro: " + (data.error || "Erro desconhecido."));
+                streamDone = true;
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+        if (streamDone) break;
+      }
+      if (!streamDone && accumulated && sources.length) {
+        const suffix = "\n\nFontes: " + sources.map((s) => s.video_id).join(", ");
+        setBotContent(accumulated + suffix);
+        if (botIdx !== -1) last[botIdx].content = accumulated + suffix;
+      } else if (!streamDone && accumulated) {
+        if (botIdx !== -1) last[botIdx].content = accumulated;
+      } else if (!streamDone && botIdx !== -1 && last[botIdx].content === "…") {
+        setBotContent("Sem resposta.");
+        last[botIdx].content = "Sem resposta.";
       }
     } catch (err) {
-      const last = getHistory();
-      const idx = last.findIndex((m) => m.role === "bot" && m.content === "…");
-      if (idx !== -1) last[idx].content = "Erro ao consultar: " + err.message;
+      setBotContent("Erro ao consultar: " + err.message);
+      if (botIdx !== -1) last[botIdx].content = "Erro ao consultar: " + err.message;
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      userInputEl.disabled = false;
     }
-    renderMessages();
   });
 
   btnTransmutar.addEventListener("click", () => {

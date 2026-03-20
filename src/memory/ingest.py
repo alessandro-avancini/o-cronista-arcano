@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import config.helper as config
 from config.settings import CHUNK_SIZE, CHUNK_OVERLAP, FULL_TRANSCRIPT_FILENAME
+from src.memory.chunk_summary import generate_chunk_summary
+from src.memory.embeddings import embed_documents
 from src.memory.text_chunker import TextChunk, split_text
 from src.memory.vector_store import (
     add_documents,
@@ -87,22 +89,28 @@ def _chunks_to_document_batches(
     chunks: List[TextChunk],
     video_id: str,
     transcript_path: Path,
-) -> tuple[List[str], List[Dict[str, Any]], List[str]]:
+) -> tuple[List[str], List[Dict[str, Any]], List[str], List[List[float]]]:
     """
-    Converte chunks em listas de documentos, metadados e IDs para o ChromaDB.
+    Converte chunks em listas de documentos, metadados, IDs e embeddings (do resumo) para o ChromaDB.
+    Armazena texto completo como documento e vetor do resumo (small-to-big RAG).
     """
     documents = []
     metadatas = []
     ids = []
+    summaries = []
     for chunk in chunks:
         documents.append(chunk.content)
+        summary = generate_chunk_summary(chunk.content)
+        summaries.append(summary)
         metadatas.append({
             "video_id": video_id,
             "source_file": str(transcript_path),
             "chunk_index": chunk.index,
+            "chunk_summary": summary,
         })
         ids.append(generate_chunk_id(video_id, chunk.index, chunk.content))
-    return documents, metadatas, ids
+    embeddings = embed_documents(summaries)
+    return documents, metadatas, ids, embeddings
 
 
 def ingest_transcript(transcript_path: Path) -> IngestResult:
@@ -148,8 +156,8 @@ def ingest_transcript(transcript_path: Path) -> IngestResult:
                 error_message="Nenhum chunk gerado"
             )
 
-        documents, metadatas, ids = _chunks_to_document_batches(chunks, video_id, transcript_path)
-        add_documents(documents, metadatas, ids)
+        documents, metadatas, ids, embeddings = _chunks_to_document_batches(chunks, video_id, transcript_path)
+        add_documents(documents, metadatas, ids, embeddings=embeddings)
         
         logger.info(f"  ✅ {len(chunks)} chunks ingeridos para: {video_id}")
         
